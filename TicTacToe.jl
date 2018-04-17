@@ -60,8 +60,15 @@ function initial_values()
     [initial_value(display_state(i)) for i in 0:3^10 - 1]
 end
 
+
+mutable struct FullBoardError <: Exception end
+
 function get_legal_moves(state, player)
     empty_indices = [x for x in 1:9 if state[x] == 0]
+
+    if size(empty_indices)[1] == 0
+        throw(FullBoardError())
+    end
 
     legal_moves = []
     for ind in empty_indices
@@ -84,6 +91,7 @@ end
 
 @assert compute_index(display_state(5)) == 5
 
+
 function get_legal_moves_ind(state_ind, player)
     state = display_state(state_ind)
     legal_moves = get_legal_moves(state, player)
@@ -95,9 +103,14 @@ function random_move(state_ind, player)
 end
 
 
+function get_values(values, index)
+    values[index+1]
+end
+
+
 function make_move(state_ind, current_values, player)
     next_moves = get_legal_moves_ind(state_ind, player)
-    next_values = [current_values[next_move] for next_move in next_moves]
+    next_values = [get_values(current_values, next_move) for next_move in next_moves]
     _, max_index = findmax(next_values)
     next_moves[max_index]
 end
@@ -108,19 +121,28 @@ function play_game!(current_values, alpha, first_player)
     player = first_player
     move_num = 1
     while get_winner_ind(state_ind) == 0
-        if player == 1 && move_num % 10 != 0
-            next_state_ind = make_move(state_ind, current_values, player)
-        else
-            next_state_ind = random_move(state_ind, player)
-        end
+        try
+            if player == 1 && move_num % 10 != 0
+                next_state_ind = make_move(state_ind, current_values, player)
+            else
+                next_state_ind = random_move(state_ind, player)
+            end
 
-        if player == 1
-            current_values[state_ind] = current_values[state_ind] + alpha * (current_values[next_state_ind] - current_values[state_ind])
-        end
+            if player == 1
+                current_values[state_ind + 1] = get_values(current_values, state_ind) + alpha * (get_values(current_values, next_state_ind) - get_values(current_values, state_ind))
+            end
 
-        state_ind = next_state_ind
-        move_num += 1
-        player = 3 - player
+            state_ind = next_state_ind
+            move_num += 1
+            player = 3 - player
+
+        catch y
+            if isa(y, FullBoardError)
+                break
+            else
+                rethrow(y)
+            end
+        end
     end
 end
 
