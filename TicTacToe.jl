@@ -1,5 +1,6 @@
 module TicTacToe
 
+using Random
 
 function allowed_next_states(current_state)
 end
@@ -7,12 +8,7 @@ end
 
 export display_state
 function display_state(state_num)
-    [parse(Int64, x) for x in string(state_num, base=3, pad=9)]
-end
-
-
-function ai_move(state)
-    return(nothing)
+    [parse(Int64, x) for x in string(state_num-1, base=3, pad=9)]
 end
 
 
@@ -26,7 +22,7 @@ function get_winner(state)
 
     function single_color(line_ind)
         line = lines[line_ind,:]
-        if state[line[1]] == state[line[2]] && state[line[2]] == state[line[3]]
+        if (state[line[1]] == state[line[2]]) && (state[line[2]] == state[line[3]])
             return state[line[1]]
         end
         return 0
@@ -57,7 +53,7 @@ end
 
 
 function initial_values()
-    [initial_value(display_state(i)) for i in 0:3^10 - 1]
+    [initial_value(display_state(i)) for i in 1:3^9]
 end
 
 
@@ -86,7 +82,7 @@ function compute_index(state)
     for i in 1:9
         state_ind += state[i] * 3 ^ (9-i)
     end
-    state_ind
+    state_ind + 1
 end
 
 @assert compute_index(display_state(5)) == 5
@@ -103,24 +99,28 @@ function random_move(state_ind, player)
 end
 
 
-function get_values(values, index)
-    values[index+1]
-end
-
-
 function make_move(state_ind, current_values, player)
     next_moves = get_legal_moves_ind(state_ind, player)
-    next_values = [get_values(current_values, next_move) for next_move in next_moves]
+    next_values = [current_values[next_move] for next_move in next_moves]
     _, max_index = findmax(next_values)
     next_moves[max_index]
 end
 
 
+function pprint_state(state_ind)
+    state = reshape(display_state(state_ind), (3, 3))
+    for i in 1:size(state, 1)
+        println(state[:,i])
+    end
+end
+
+
 function play_game!(current_values, alpha, first_player)
-    state_ind = 0
+    state_ind = 1  # starting state, empty board
     player = first_player
     move_num = 1
     while get_winner_ind(state_ind) == 0
+        # pprint_state(state_ind)
         try
             if player == 1 && move_num % 10 != 0
                 next_state_ind = make_move(state_ind, current_values, player)
@@ -128,9 +128,11 @@ function play_game!(current_values, alpha, first_player)
                 next_state_ind = random_move(state_ind, player)
             end
 
-            if player == 1
-                current_values[state_ind + 1] = get_values(current_values, state_ind) + alpha * (get_values(current_values, next_state_ind) - get_values(current_values, state_ind))
-            end
+            # if player == 1
+            # println(current_values[state_ind])
+            current_values[state_ind] = current_values[state_ind] + alpha * (current_values[next_state_ind] - current_values[state_ind])
+            # println(current_values[state_ind])
+            # end
 
             state_ind = next_state_ind
             move_num += 1
@@ -144,12 +146,15 @@ function play_game!(current_values, alpha, first_player)
             end
         end
     end
+    # pprint_state(state_ind)
+    # println(current_values[state_ind])
 end
 
 # todo: return value difference? For convergence test.
 
 
 function train(alpha, num_games)
+    srand(345)
     values = initial_values()
     first_player = 1
     for i in 1:num_games
