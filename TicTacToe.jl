@@ -166,4 +166,54 @@ function train(alpha, num_games)
 end
 
 
+function print_move(state_ind)
+    print(state_ind)
+    print(": \n")
+    pprint_state(state_ind)
+    print("\n\n")
+end
+
+function make_player_move(state_ind, player)
+    while true
+        legal_moves = get_legal_moves_ind(state_ind, player)
+
+        print("Legal moves: \n")
+        for move in legal_moves
+            print_move(move)
+        end
+
+        input = parse(UInt, readline())
+
+        if sum(legal_moves .== input) > 0
+            return input
+        else
+            println("Invalid move! Sorry")
+        end
+    end
+end
+
+function play(values)
+    player = 1
+    state_ind = 1
+    while get_winner_ind(state_ind) == 0
+        try
+            if player == 1
+                next_state_ind = make_player_move(state_ind, player)
+            else
+                next_state_ind = make_move(state_ind, values, player)
+            end
+
+            state_ind = next_state_ind
+            player = 3 - player
+
+        catch y
+            if isa(y, FullBoardError)
+                break
+            else
+                rethrow(y)
+            end
+        end
+    end
+end
+
 end
