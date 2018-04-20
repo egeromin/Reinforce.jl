@@ -211,8 +211,8 @@ end
 
 
 # todo: return value difference? For convergence test.
-function train_game!(model::Model, alpha::Float64)
-    exploiting_moves::Array{Int64, 1} = []
+function train_game!(model::Model, alpha::Float64, exploration_prob::Float64)
+    exploiting_moves::Array{Array{Int64, 1}, 1} = [[]]
     board = Board()
     current_player = opponent
     while true
@@ -228,27 +228,37 @@ function train_game!(model::Model, alpha::Float64)
             board = slightly_clever_teacher_opponent(board)
             current_player = me
         else
-            board = make_move(model, board, current_player)
+            if rand(Float64, 1)[1] < exploration_prob
+                board = random_move(board, current_player)
+                push!(exploiting_moves, [])
+            else
+                board = make_move(model, board, current_player)
+            end
+
+            push!(exploiting_moves[end], index_from_board(board))
+
             current_player = opponent
-            push!(exploiting_moves, index_from_board(board))
+
         end
     end
 
     last_index = index_from_board(board)
-    if exploiting_moves[end] != last_index
-        push!(exploiting_moves, last_index)
+    if exploiting_moves[end][end] != last_index
+        push!(exploiting_moves[end], last_index)
     end
 
-    update_values!(model, alpha, exploiting_moves)
+    for moves in exploiting_moves
+        update_values!(model, alpha, moves)
+    end
 
 end
 
 
 
-function train!(model::Model, alpha::Float64, num_games::Int64)
+function train!(model::Model, alpha::Float64, exploration_prob::Float64, num_games::Int64)
     # srand(345)  # random seed
     for i in 1:num_games
-        train_game!(model, alpha)
+        train_game!(model, alpha, exploration_prob)
     end
 end
 
@@ -321,7 +331,7 @@ function play_game(model::Model)
         end
 
         if current_player == opponent
-            board = slightly_clever_teacher_opponent(board)
+            board = random_move(board, current_player)
             current_player = me
         else
             board = make_move(model, board, current_player)
@@ -362,7 +372,7 @@ end  # module
 """
 function main()
     model = TicTacToe.Model()
-    TicTacToe.train!(model, 0.5, 10000)
+    TicTacToe.train!(model, 0.1, 0.3, 100000)
     println("Training done")
     print(TicTacToe.success_rate(model, 1000))
 

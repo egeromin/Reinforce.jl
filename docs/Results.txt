@@ -1,0 +1,17 @@
+results so far
+
+
+alpha = 0.5, trainin games = 10000, draw=1.0, no exploration,
+slightly clever opponent
+Main.TicTacToe.Stats(0.322, 0.675, 0.003)
+
+
+same but against random opponent during testing:
+Main.TicTacToe.Stats(0.867, 0.118, 0.015)
+
+
+same but with exploration 0.1 prop of times
+Main.TicTacToe.Stats(0.795, 0.183, 0.022)
+
+with 10x as many games
+Main.TicTacToe.Stats(0.836, 0.155, 0.009)
