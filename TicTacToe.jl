@@ -155,20 +155,20 @@ function pprint_state(board::Board)
 end
 
 
-function find_completing(board::Board, line::Array{Int64, 1})
+function find_completing(board::Board, line::Array{Int64, 1}, player::Player)
     completing = 0
-    me_counts = 0
+    player_counts = 0
     nobody_counts = 0
     for i in line
-        if board.cells[i] == me
-            me_counts += 1
+        if board.cells[i] == player
+            player_counts += 1
         elseif board.cells[i] == nobody
             completing = i
             nobody_counts += 1
         end
     end
 
-    if me_counts == 2 && nobody_counts == 1
+    if player_counts == 2 && nobody_counts == 1
         return completing
     else
         return 0
@@ -179,7 +179,17 @@ end
 function slightly_clever_teacher_opponent(board::Board)
     for i in 1:size(LINES, 1)
         line = LINES[i, :]
-        completing = find_completing(board, line)
+        completing = find_completing(board, line, opponent)
+        if completing > 0
+            next_state = Board(board.cells)
+            next_state.cells[completing] = opponent
+            return next_state
+        end
+    end
+
+    for i in 1:size(LINES, 1)
+        line = LINES[i, :]
+        completing = find_completing(board, line, me)
         if completing > 0
             next_state = Board(board.cells)
             next_state.cells[completing] = opponent
@@ -321,17 +331,26 @@ function play_game(model::Model)
 end
 
 
+struct Stats
+    wins::Float64
+    draws::Float64
+    losses::Float64
+end
+
 function success_rate(model::Model, num_games::Int64)
 
-    num_successes = 0
+    num_wins = 0
+    num_draws = 0
     for i in 1:num_games
         winner = play_game(model)
-        if winner == me || winner == nobody
-            num_successes += 1
+        if winner == me
+            num_wins += 1
+        elseif winner == nobody
+            num_draws += 1
         end
     end
 
-    return num_successes / num_games
+    return Stats(num_wins / num_games, num_draws / num_games, (num_games - num_wins - num_draws) / num_games)
 end
 
 end  # module
@@ -343,7 +362,7 @@ end  # module
 """
 function main()
     model = TicTacToe.Model()
-    TicTacToe.train!(model, 0.1, 100000)
+    TicTacToe.train!(model, 0.5, 10000)
     println("Training done")
     print(TicTacToe.success_rate(model, 1000))
 
