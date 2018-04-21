@@ -1,7 +1,8 @@
 module TicTacToe
 
 using Random
-
+import Base.show
+import Printf.@sprintf
 
 @enum Player nobody me opponent
 BOARD_SIZE = 9
@@ -59,13 +60,13 @@ function is_board_full(board::Board)
 end
 
 
-function initial_value(board::Board)
+function initial_value(board::Board, player::Player)
     winner = get_winner(board)
 
-    if winner == opponent
-        0.0
-    elseif winner == me
+    if winner == player
         1.0
+    elseif winner != nobody
+        0.0
     elseif is_board_full(board)
         1.0
     else
@@ -75,8 +76,8 @@ function initial_value(board::Board)
 end
 
 
-function initial_values()
-    [initial_value(board_from_index(i)) for i in 1:3^9]
+function initial_values(player::Player)
+    [initial_value(board_from_index(i), player) for i in 1:3^9]
 end
 
 
@@ -122,7 +123,8 @@ All the data for a learned model:
 """
 struct Model
     values::Array{Float64, 1}
-    Model() = new(initial_values())
+    player::Player
+    Model(player) = new(initial_values(player), player)
 end
 
 
@@ -210,9 +212,29 @@ function update_values!(model::Model, alpha::Float64, exploiting_moves::Array{In
 end
 
 
+"""
+Make a learner move: do an exploring move with probability exploration_prob
+And otherwise make an exploiting move
+"""
+function learner_move!(model::Model, board::Board, player::Player, exploiting_moves::Array{Array{Int64, 1}, 1}, exploration_prob::Float64)
+    if rand(Float64, 1)[1] < exploration_prob
+        board = random_move(board, player)
+        push!(exploiting_moves, [])
+    else
+        board = make_move(model, board, player)
+    end
+
+    push!(exploiting_moves[end], index_from_board(board))
+    return board
+end
+
+
 # todo: return value difference? For convergence test.
-function train_game!(model::Model, alpha::Float64, exploration_prob::Float64)
-    exploiting_moves::Array{Array{Int64, 1}, 1} = [[]]
+function train_game!(model_me::Model, model_opponent::Model, alpha::Float64, exploration_prob::Float64)
+    @assert model_me.player == me
+    @assert model_opponent.player == opponent
+    exploiting_moves_me::Array{Array{Int64, 1}, 1} = [[]]
+    exploiting_moves_opponent::Array{Array{Int64, 1}, 1} = [[]]
     board = Board()
     current_player = opponent
     while true
@@ -225,40 +247,38 @@ function train_game!(model::Model, alpha::Float64, exploration_prob::Float64)
         end
 
         if current_player == opponent
-            board = slightly_clever_teacher_opponent(board)
+            board = learner_move!(model_opponent, board, current_player, exploiting_moves_opponent, exploration_prob)
             current_player = me
         else
-            if rand(Float64, 1)[1] < exploration_prob
-                board = random_move(board, current_player)
-                push!(exploiting_moves, [])
-            else
-                board = make_move(model, board, current_player)
-            end
-
-            push!(exploiting_moves[end], index_from_board(board))
-
+            board = learner_move!(model_me, board, current_player, exploiting_moves_me, exploration_prob)
             current_player = opponent
-
         end
     end
 
     last_index = index_from_board(board)
-    if exploiting_moves[end][end] != last_index
-        push!(exploiting_moves[end], last_index)
+    if exploiting_moves_me[end][end] != last_index
+        push!(exploiting_moves_me[end], last_index)
+    end
+    if exploiting_moves_opponent[end][end] != last_index
+        push!(exploiting_moves_opponent[end], last_index)
     end
 
-    for moves in exploiting_moves
-        update_values!(model, alpha, moves)
+    for moves in exploiting_moves_me
+        update_values!(model_me, alpha, moves)
+    end
+
+    for moves in exploiting_moves_opponent
+        update_values!(model_opponent, alpha, moves)
     end
 
 end
 
 
 
-function train!(model::Model, alpha::Float64, exploration_prob::Float64, num_games::Int64)
+function train!(model_me::Model, model_opponent::Model, alpha::Float64, exploration_prob::Float64, num_games::Int64)
     # srand(345)  # random seed
     for i in 1:num_games
-        train_game!(model, alpha, exploration_prob)
+        train_game!(model_me, model_opponent, alpha, exploration_prob)
     end
 end
 
@@ -268,53 +288,6 @@ function print_move(state_ind)
     print(": \n")
     pprint_state(state_ind)
     print("\n\n")
-end
-
-function make_player_move(state_ind, player)
-    while true
-        legal_moves = get_legal_moves_ind(state_ind, player)
-
-        print("Legal moves: \n")
-        for move in legal_moves
-            print_move(move)
-        end
-
-        input = parse(UInt, readline())
-
-        if sum(legal_moves .== input) > 0
-            return input
-        else
-            println("Invalid move! Sorry")
-        end
-    end
-end
-
-function play(values)
-    player = 2
-    state_ind = 1
-    winner = 0
-    while winner == 0
-        if player == 2
-            next_state_ind = make_player_move(state_ind, player)
-            if next_state_ind == -1
-                print("Board full!")
-                break
-            end
-        else
-            next_state_ind = make_move(state_ind, values, player)
-        end
-
-        state_ind = next_state_ind
-        player = 3 - player
-        winner = get_winner_ind(state_ind)
-    end
-
-    if winner == 2
-        println("You win!")
-    elseif winner == 1
-        println("I win!")
-    end
-
 end
 
 
@@ -347,6 +320,17 @@ struct Stats
     losses::Float64
 end
 
+
+"""
+Override 'show' for 'Stats'
+"""
+function Base.show(io::IO, stats::Stats)
+    out_str = @sprintf("\nWins: %.2f%%\nDraws: %.2f%%\nLosses: %.2f%%\n",
+        stats.wins * 100, stats.draws * 100, stats.losses * 100)
+    print(out_str)  # Show vs print?
+end
+
+
 function success_rate(model::Model, num_games::Int64)
 
     num_wins = 0
@@ -371,10 +355,15 @@ end  # module
 - trains once over 1000 games & then plays another 1000 games and outputs the success rate
 """
 function main()
-    model = TicTacToe.Model()
-    TicTacToe.train!(model, 0.1, 0.3, 100000)
+    model_me = TicTacToe.Model(TicTacToe.me)
+    model_opponent = TicTacToe.Model(TicTacToe.opponent)
+    TicTacToe.train!(model_me, model_opponent, 0.3, 0.3, 300000)
     println("Training done")
-    print(TicTacToe.success_rate(model, 1000))
+
+    for i in 1:10
+        println("Test run $i of 10")
+        print(TicTacToe.success_rate(model_me, 1000))
+    end
 
     # println("HIghest ranking board states: ")
     # values_enumerated = [x for x in enumerate(model.values)]
