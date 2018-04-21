@@ -19,3 +19,7 @@ Update:
 - with self-play, get much better results against the random player (0 losses)
 - AND can win against the slightly clever player (0 losses)
 - How does it perform against a perfect player?
+
+Update:
+
+- never loses against a perfect player: 100% draws.

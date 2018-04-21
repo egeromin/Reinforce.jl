@@ -177,29 +177,166 @@ function find_completing(board::Board, line::Array{Int64, 1}, player::Player)
     end
 end
 
+"""
+This player completes 2 in a row, otherwise returns a fallback
+"""
+function complete_2_in_a_row(board::Board, player::Player, fallback_move)
+    for i in 1:size(LINES, 1)
+        line = LINES[i, :]
+        completing = find_completing(board, line, player)
+        if completing > 0
+            next_state = Board(board.cells)
+            next_state.cells[completing] = player
+            return next_state
+        end
+    end
 
+    other_player = player == opponent ? me : opponent
+    for i in 1:size(LINES, 1)
+        line = LINES[i, :]
+        completing = find_completing(board, line, other_player)
+        if completing > 0
+            next_state = Board(board.cells)
+            next_state.cells[completing] = player
+            return next_state
+        end
+    end
+
+    fallback_move(board, player)
+end
+
+
+"""
+Completes 2 in a row if that's the case, otherwise returns
+a random move
+"""
 function slightly_clever_teacher_opponent(board::Board)
-    for i in 1:size(LINES, 1)
-        line = LINES[i, :]
-        completing = find_completing(board, line, opponent)
-        if completing > 0
-            next_state = Board(board.cells)
-            next_state.cells[completing] = opponent
-            return next_state
+    complete_2_in_a_row(board, opponent, random_move)
+end
+
+
+"""
+Tries to match the current board to 'pattern' by rotating 0, 90, 180, 270 degrees.
+If it finds a match, returns next correctly rotated.
+Otherwise, returns nothing.
+"""
+function next_from_pattern(board::Board, pattern::Board, next::Board)
+    board_cells = reshape(board.cells, (3, 3))
+    pattern_cells = reshape(pattern.cells, (3,3))
+    next_cells = reshape(next.cells, (3,3))
+
+    for i in 0:3
+        if board_cells == pattern_cells
+            next_rotated = rotr90(next_cells, i)
+            return Board(reshape(next_rotated, BOARD_SIZE))
+        end
+        board_cells = rotl90(board_cells)
+    end
+
+    nothing  # return nothing if there's no match
+end
+
+"""
+Rule based play for an opponent.
+
+If none of the rules apply, raises an error
+"""
+function rule_based_play(board::Board)
+    num_nonempty = sum(board.cells .!= [nobody])
+
+    pattern_next = []
+
+    if num_nonempty == 0
+        next_board = Board()
+        next_board.cells[5] = opponent  # fill in the middle
+        return next_board
+    elseif num_nonempty == 2
+        pattern_next = [
+            (
+                Board([
+                    nobody, nobody, me,
+                    nobody, opponent, nobody,
+                    nobody, nobody, nobody
+                    ]),
+                Board([
+                    nobody, nobody, me,
+                    nobody, opponent, opponent,
+                    nobody, nobody, nobody
+                    ])
+            ),
+            (
+                Board([
+                    nobody, me, nobody,
+                    nobody, opponent, nobody,
+                    nobody, nobody, nobody
+                    ]),
+                Board([
+                    nobody, me, opponent,
+                    nobody, opponent, nobody,
+                    nobody, nobody, nobody
+                    ]),
+            ),
+        ]  # pattern-next pairs
+    elseif num_nonempty == 4
+        pattern_next = [
+            (
+                Board([
+                    nobody, nobody, me,
+                    me, opponent, opponent,
+                    nobody, nobody, nobody
+                    ]),
+                Board([
+                    nobody, opponent, me,
+                    me, opponent, opponent,
+                    nobody, nobody, nobody
+                    ])
+            ),
+            (
+                Board([
+                    nobody, me, opponent,
+                    nobody, opponent, nobody,
+                    me, nobody, nobody
+                    ]),
+                Board([
+                    nobody, me, opponent,
+                    nobody, opponent, opponent,
+                    me, nobody, nobody
+                    ])
+            ),
+        ]  # pattern-next pairs
+    else
+        @assert num_nonempty == 6
+        pattern_next = [
+            (
+                Board([
+                    nobody, opponent, me,
+                    me, opponent, opponent,
+                    nobody, me, nobody
+                    ]),
+                Board([
+                    opponent, opponent, me,
+                    me, opponent, opponent,
+                    nobody, me, nobody
+                    ])
+            )
+        ]  # pattern-next pairs
+    end
+
+    for i in pattern_next
+        pattern, next = i
+        match = next_from_pattern(board, pattern, next)
+        if match !== nothing
+            return match
         end
     end
 
-    for i in 1:size(LINES, 1)
-        line = LINES[i, :]
-        completing = find_completing(board, line, me)
-        if completing > 0
-            next_state = Board(board.cells)
-            next_state.cells[completing] = opponent
-            return next_state
-        end
-    end
+    error("No matching rules found!")
 
-    random_move(board, opponent)
+end
+
+
+function perfect_opponent(board::Board)
+    complete_2_in_a_row(board, opponent, (b, p) -> rule_based_play(b))
 end
 
 
@@ -304,7 +441,7 @@ function play_game(model::Model)
         end
 
         if current_player == opponent
-            board = random_move(board, current_player)
+            board = perfect_opponent(board)
             current_player = me
         else
             board = make_move(model, board, current_player)
