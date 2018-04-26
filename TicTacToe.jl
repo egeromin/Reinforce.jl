@@ -563,7 +563,7 @@ function main()
     policy_me = LearnerPolicy(me, 0.3, 0.3, true)
     policy_opponent = LearnerPolicy(opponent, 0.3, 0.3, true)
     
-    train!(policy_me, policy_opponent, 3000)
+    train!(policy_me, policy_opponent, 300000)
     println("Training done")
 
     println("Writing output to file")
