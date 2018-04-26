@@ -4,6 +4,9 @@ using Random
 import Base.show
 import Printf.@sprintf
 
+export LearnerPolicy, PerfectPolicy, SemiCleverPolicy, RandomPolicy, train!, me, opponent, nobody, success_rate
+
+
 @enum Player nobody me opponent
 BOARD_SIZE = 9
 
@@ -40,7 +43,7 @@ function get_winner(board::Board)
     for i in 1:size(LINES, 1)
         line = LINES[i, :]
         a, b, c = map(j -> board.cells[j], line)
-        if a == b == c
+        if a == b == c != nobody
             return a
         end
     end
@@ -103,37 +106,11 @@ end
 
 @assert index_from_board(board_from_index(5)) == 5
 
-#
-# function get_legal_moves_index(i::Int64, player::Player)
-#     board = board_from_index(i)
-#     legal_moves = get_legal_moves(board, player)
-#     [index_from_board(next_state) for next_state in legal_moves]
-# end
-#
 
 function random_move(b::Board, player::Player)
     rand(get_legal_moves(b, player))
 end
 
-
-"""
-All the data for a learned model:
-
-- the values
-"""
-struct Model
-    values::Array{Float64, 1}
-    player::Player
-    Model(player) = new(initial_values(player), player)
-end
-
-
-function make_move(model::Model, board::Board, player::Player)
-    next_moves = get_legal_moves(board, player)
-    next_values = [model.values[index_from_board(next_move)] for next_move in next_moves]
-    _, max_index = findmax(next_values)
-    next_moves[max_index]
-end
 
 
 function pprint_state(board::Board)
@@ -206,12 +183,36 @@ function complete_2_in_a_row(board::Board, player::Player, fallback_move)
 end
 
 
+
+
+abstract type Policy end
+
+
+struct RandomPolicy <: Policy
+    player:: Player
+end
+
+function move!(policy::RandomPolicy, board::Board)
+    random_move(board, policy.player)
+end
+
+function update!(policy::RandomPolicy, last_index::Int)
+end
+
+struct SemiCleverPolicy <: Policy 
+    player:: Player
+end
+
 """
 Completes 2 in a row if that's the case, otherwise returns
 a random move
 """
-function slightly_clever_teacher_opponent(board::Board)
-    complete_2_in_a_row(board, opponent, random_move)
+function move!(policy::SemiCleverPolicy, board::Board)
+    complete_2_in_a_row(board, policy.player, random_move)
+end
+
+
+function update!(policy::SemiCleverPolicy, last_index::Int)
 end
 
 
@@ -330,22 +331,54 @@ function rule_based_play(board::Board)
         end
     end
 
+    pprint_state(board)
+    print(get_winner(board))
     error("No matching rules found!")
 
 end
 
 
-function perfect_opponent(board::Board)
-    complete_2_in_a_row(board, opponent, (b, p) -> rule_based_play(b))
+struct PerfectPolicy <: Policy 
+    player:: Player
+end
+
+function move!(policy::PerfectPolicy, board::Board)
+    @assert policy.player == opponent
+    complete_2_in_a_row(board, policy.player, (b, p) -> rule_based_play(b))
+end
+
+function update!(policy::PerfectPolicy, last_index::Int)
 end
 
 
-function update_values!(model::Model, alpha::Float64, exploiting_moves::Array{Int64, 1})
-    for i in 2:length(exploiting_moves)
-        a = exploiting_moves[i-1]
-        b = exploiting_moves[i]
-        model.values[a] = model.values[a] + alpha * (model.values[b] - model.values[a])
-    end
+# would like to say
+# player.move()  #this stores anything it might need to store
+# player.update()  # this updates anything
+
+# and a *random player* / *semi clever player* then simply don't do anything with the update
+# so I have a separate 'move' and 'update' player depending on the input type
+# so I want a (possible empty) abstract type which I can use to structure things
+
+
+mutable struct LearnerPolicy <: Policy
+    values::Array{Float64, 1}
+    player::Player
+    alpha::Float64
+    exploration_prob::Float64
+    exploiting_moves::Array{Array{Int64, 1}, 1}
+    update::Bool
+
+    LearnerPolicy(player, alpha, exploration_prob, update) = 
+        new(initial_values(player), player, alpha,
+            exploration_prob, [[]], update)
+end
+
+
+function greedy_learner_move(policy::LearnerPolicy, board::Board)
+    next_moves = get_legal_moves(board, policy.player)
+    next_values = [policy.values[index_from_board(next_move)] for next_move in next_moves]
+    _, max_index = findmax(next_values)
+    next_moves[max_index]
 end
 
 
@@ -353,71 +386,86 @@ end
 Make a learner move: do an exploring move with probability exploration_prob
 And otherwise make an exploiting move
 """
-function learner_move!(model::Model, board::Board, player::Player, exploiting_moves::Array{Array{Int64, 1}, 1}, exploration_prob::Float64)
-    if rand(Float64, 1)[1] < exploration_prob
-        board = random_move(board, player)
-        push!(exploiting_moves, [])
+function move!(policy::LearnerPolicy, board::Board)
+    if rand(Float64, 1)[1] < policy.exploration_prob
+        board = random_move(board, policy.player)
+        if policy.update
+            push!(policy.exploiting_moves, [])
+        end
     else
-        board = make_move(model, board, player)
+        board = greedy_learner_move(policy, board)
     end
 
-    push!(exploiting_moves[end], index_from_board(board))
+    if policy.update
+        push!(policy.exploiting_moves[end], index_from_board(board))
+    end
     return board
 end
 
 
+function update!(policy::LearnerPolicy, last_index::Int)
+    if ! policy.update
+        return 
+    end
+    if policy.exploiting_moves[end][end] != last_index
+        push!(policy.exploiting_moves[end], last_index)
+    end
+    for moves in policy.exploiting_moves
+        for i in 2:length(moves)
+            a = moves[i-1]
+            b = moves[i]
+            policy.values[a] = policy.values[a] + policy.alpha * (policy.values[b] - policy.values[a])
+        end
+    end
+
+    policy.exploiting_moves = [[]]
+end
+
+
 # todo: return value difference? For convergence test.
-function train_game!(model_me::Model, model_opponent::Model, alpha::Float64, exploration_prob::Float64)
-    @assert model_me.player == me
-    @assert model_opponent.player == opponent
-    exploiting_moves_me::Array{Array{Int64, 1}, 1} = [[]]
-    exploiting_moves_opponent::Array{Array{Int64, 1}, 1} = [[]]
-    board = Board()
-    current_player = opponent
-    while true
-        winner = get_winner(board)
-        if winner != nobody
-            break
-        end
-        if is_board_full(board)
-            break
-        end
+ # function train_game!(model_me::Model, model_opponent::Model, alpha::Float64, exploration_prob::Float64)
+ #     @assert model_me.player == me
+ #     @assert model_opponent.player == opponent
+ #     exploiting_moves_me::Array{Array{Int64, 1}, 1} = [[]]
+ #     exploiting_moves_opponent::Array{Array{Int64, 1}, 1} = [[]]
+ #     board = Board()
+ #     current_player = opponent
+ #     while true
+ #         winner = get_winner(board)
+ #         if winner != nobody
+ #             break
+ #         end
+ #         if is_board_full(board)
+ #             break
+ #         end
+ # 
+ #         if current_player == opponent
+ #             board = learner_move!(model_opponent, board, current_player, exploiting_moves_opponent, exploration_prob)
+ #             current_player = me
+ #         else
+ #             board = learner_move!(model_me, board, current_player, exploiting_moves_me, exploration_prob)
+ #             current_player = opponent
+ #         end
+ #     end
+ # 
+ #     last_index = index_from_board(board)
+ #     if exploiting_moves_me[end][end] != last_index
+ #         push!(exploiting_moves_me[end], last_index)
+ #     end
+ #     if exploiting_moves_opponent[end][end] != last_index
+ #         push!(exploiting_moves_opponent[end], last_index)
+ #     end
+ # 
+ #     for moves in exploiting_moves_me
+ #         update_values!(model_me, alpha, moves)
+ #     end
+ # 
+ #     for moves in exploiting_moves_opponent
+ #         update_values!(model_opponent, alpha, moves)
+ #     end
+ # 
+ # end
 
-        if current_player == opponent
-            board = learner_move!(model_opponent, board, current_player, exploiting_moves_opponent, exploration_prob)
-            current_player = me
-        else
-            board = learner_move!(model_me, board, current_player, exploiting_moves_me, exploration_prob)
-            current_player = opponent
-        end
-    end
-
-    last_index = index_from_board(board)
-    if exploiting_moves_me[end][end] != last_index
-        push!(exploiting_moves_me[end], last_index)
-    end
-    if exploiting_moves_opponent[end][end] != last_index
-        push!(exploiting_moves_opponent[end], last_index)
-    end
-
-    for moves in exploiting_moves_me
-        update_values!(model_me, alpha, moves)
-    end
-
-    for moves in exploiting_moves_opponent
-        update_values!(model_opponent, alpha, moves)
-    end
-
-end
-
-
-
-function train!(model_me::Model, model_opponent::Model, alpha::Float64, exploration_prob::Float64, num_games::Int64)
-    # srand(345)  # random seed
-    for i in 1:num_games
-        train_game!(model_me, model_opponent, alpha, exploration_prob)
-    end
-end
 
 
 function print_move(state_ind)
@@ -428,25 +476,41 @@ function print_move(state_ind)
 end
 
 
-function play_game(model::Model)
+function play_game!(policy_me::Policy, policy_opponent::Policy)
+    @assert policy_me.player == me
+    @assert policy_opponent.player == opponent
     board = Board()
     current_player = opponent
+    winner = nobody
     while true
         winner = get_winner(board)
         if winner != nobody
-            return winner
+            break
         end
         if is_board_full(board)
-            return nobody
+            break
         end
 
         if current_player == opponent
-            board = perfect_opponent(board)
+            board = move!(policy_opponent, board)
             current_player = me
         else
-            board = make_move(model, board, current_player)
+            board = move!(policy_me, board)
             current_player = opponent
         end
+    end
+
+    last_index = index_from_board(board)
+    update!(policy_me, last_index)
+    update!(policy_opponent, last_index)
+    return winner
+end
+
+
+function train!(policy_me::Policy, policy_opponent::Policy, num_games::Int)
+    # srand(345)  # random seed
+    for i in 1:num_games
+        play_game!(policy_me, policy_opponent)
     end
 end
 
@@ -468,12 +532,12 @@ function Base.show(io::IO, stats::Stats)
 end
 
 
-function success_rate(model::Model, num_games::Int64)
+function success_rate(policy_me::Policy, policy_opponent::Policy, num_games::Int64)
 
     num_wins = 0
     num_draws = 0
     for i in 1:num_games
-        winner = play_game(model)
+        winner = play_game!(policy_me, policy_opponent)
         if winner == me
             num_wins += 1
         elseif winner == nobody
@@ -487,32 +551,35 @@ end
 end  # module
 
 
+
+import JSON
+using .TicTacToe
+
 """
 - main function: computes a success metric
-- trains once over 1000 games & then plays another 1000 games and outputs the success rate
+- trains once over 300,000 games & then plays another 1000 games and outputs the success rate
 """
 function main()
-    model_me = TicTacToe.Model(TicTacToe.me)
-    model_opponent = TicTacToe.Model(TicTacToe.opponent)
-    TicTacToe.train!(model_me, model_opponent, 0.3, 0.3, 300000)
+    policy_me = LearnerPolicy(me, 0.3, 0.3, true)
+    policy_opponent = LearnerPolicy(opponent, 0.3, 0.3, true)
+    
+    train!(policy_me, policy_opponent, 3000)
     println("Training done")
+
+    println("Writing output to file")
+    fh = open("values.json", "w")
+    write(fh, JSON.json(policy_me.values))
+    close(fh)
+    println("Done writing")
+
+    policy_me.update = false
+    policy_opponent = PerfectPolicy(opponent)
 
     for i in 1:10
         println("Test run $i of 10")
-        print(TicTacToe.success_rate(model_me, 1000))
+        print(success_rate(policy_me, policy_opponent, 1000))
     end
 
-    # println("HIghest ranking board states: ")
-    # values_enumerated = [x for x in enumerate(model.values)]
-    # values_enumerated = sort(values_enumerated, by=x->x[2])
-    # for pair in values_enumerated
-    #     if pair[2] == 1.0
-    #         break
-    #     end
-    #     println(pair)
-    #     TicTacToe.pprint_state(TicTacToe.board_from_index(pair[1]))
-    #     println("\n-------\n")
-    # end
 end
 
 main()
