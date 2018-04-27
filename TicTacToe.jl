@@ -479,10 +479,10 @@ end
 """
 Override 'show' for 'Stats'
 """
-function Base.show(io::IO, stats::Stats)
-    out_str = @sprintf("\nWins: %.2f%%\nDraws: %.2f%%\nLosses: %.2f%%\n",
+function Base.print(io::IO, stats::Stats)
+    out_str = @sprintf("%.2f, %.2f, %.2f, ",
         stats.wins * 100, stats.draws * 100, stats.losses * 100)
-    print(out_str)  # Show vs print?
+    print(io, out_str)  # Show vs print?
 end
 
 
@@ -514,27 +514,40 @@ using .TicTacToe
 - trains once over 300,000 games & then plays another 1000 games and outputs the success rate
 """
 function main()
-    policy_me = LearnerPolicy(me, 0.3, 0.0, true)
-    policy_opponent = LearnerPolicy(opponent, 0.3, 0.0, true)
-    
-    train!(policy_me, policy_opponent, 2000)
-    println("Training done")
+    policy_me = LearnerPolicy(me, 0.3, 0.3, true)
 
-    println("Writing output to file")
-    fh = open("values.json", "w")
-    write(fh, JSON.json(policy_me.values))
-    close(fh)
-    println("Done writing")
+    opponent_policies = [LearnerPolicy(opponent, 0.3, 0.3, true),
+                         RandomPolicy(opponent),
+                         SemiCleverPolicy(opponent),
+                         PerfectPolicy(opponent)]
 
-    policy_me.update = false
-    policy_me.exploration_prob = -1
-    policy_opponent = PerfectPolicy(opponent)
+    fh = open("results.csv", "w")
+    for policy_opponent in opponent_policies
+        
+        train!(policy_me, policy_opponent, 300000)
+        println("Training done")
 
-    for i in 1:10
-        println("Test run $i of 10")
-        print(success_rate(policy_me, policy_opponent, 1000))
+    #     println("Writing output to file")
+    #     fh = open("values.json", "w")
+    #     write(fh, JSON.json(policy_me.values))
+    #     close(fh)
+    #     println("Done writing")
+
+        policy_me.update = false
+        policy_me.exploration_prob = -1
+        opponent_policies[1].update = false
+
+        for live_opponent in opponent_policies
+            print("    live opponent: ")
+            print(typeof(live_opponent))
+            print("\n")
+            stats = success_rate(policy_me, live_opponent, 1000)
+            print(fh, stats)
+        end
+        print(fh, "\n")
     end
 
 end
 
 main()
+
