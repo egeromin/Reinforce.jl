@@ -40,7 +40,7 @@ function get_winner(board::Board)
     for i in 1:size(LINES, 1)
         line = LINES[i, :]
         a, b, c = map(j -> board.cells[j], line)
-        if a == b == c
+        if a == b == c != nobody
             return a
         end
     end
@@ -345,6 +345,7 @@ function update_values!(model::Model, alpha::Float64, exploiting_moves::Array{In
         a = exploiting_moves[i-1]
         b = exploiting_moves[i]
         model.values[a] = model.values[a] + alpha * (model.values[b] - model.values[a])
+        print(model.values[a])
     end
 end
 
@@ -400,20 +401,25 @@ function train_game!(model_me::Model, model_opponent::Model, alpha::Float64, exp
         push!(exploiting_moves_opponent[end], last_index)
     end
 
+    println(exploiting_moves_me)
+    println(exploiting_moves_opponent)
+
     for moves in exploiting_moves_me
         update_values!(model_me, alpha, moves)
     end
+    print("\n")
 
     for moves in exploiting_moves_opponent
         update_values!(model_opponent, alpha, moves)
     end
+    print("\n")
 
 end
 
 
 
 function train!(model_me::Model, model_opponent::Model, alpha::Float64, exploration_prob::Float64, num_games::Int64)
-    # srand(345)  # random seed
+    srand(345)  # random seed
     for i in 1:num_games
         train_game!(model_me, model_opponent, alpha, exploration_prob)
     end
@@ -486,6 +492,7 @@ end
 
 end  # module
 
+using JSON
 
 """
 - main function: computes a success metric
@@ -494,8 +501,14 @@ end  # module
 function main()
     model_me = TicTacToe.Model(TicTacToe.me)
     model_opponent = TicTacToe.Model(TicTacToe.opponent)
-    TicTacToe.train!(model_me, model_opponent, 0.3, 0.3, 300000)
+    TicTacToe.train!(model_me, model_opponent, 0.3, 0.3, 2000)
     println("Training done")
+
+    println("Writing output to file")
+    fh = open("values_old.json", "w")
+    write(fh, JSON.json(model_me.values))
+    close(fh)
+    println("Done writing")
 
     for i in 1:10
         println("Test run $i of 10")

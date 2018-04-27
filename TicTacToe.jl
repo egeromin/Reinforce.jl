@@ -422,52 +422,6 @@ function update!(policy::LearnerPolicy, last_index::Int)
 end
 
 
-# todo: return value difference? For convergence test.
- # function train_game!(model_me::Model, model_opponent::Model, alpha::Float64, exploration_prob::Float64)
- #     @assert model_me.player == me
- #     @assert model_opponent.player == opponent
- #     exploiting_moves_me::Array{Array{Int64, 1}, 1} = [[]]
- #     exploiting_moves_opponent::Array{Array{Int64, 1}, 1} = [[]]
- #     board = Board()
- #     current_player = opponent
- #     while true
- #         winner = get_winner(board)
- #         if winner != nobody
- #             break
- #         end
- #         if is_board_full(board)
- #             break
- #         end
- # 
- #         if current_player == opponent
- #             board = learner_move!(model_opponent, board, current_player, exploiting_moves_opponent, exploration_prob)
- #             current_player = me
- #         else
- #             board = learner_move!(model_me, board, current_player, exploiting_moves_me, exploration_prob)
- #             current_player = opponent
- #         end
- #     end
- # 
- #     last_index = index_from_board(board)
- #     if exploiting_moves_me[end][end] != last_index
- #         push!(exploiting_moves_me[end], last_index)
- #     end
- #     if exploiting_moves_opponent[end][end] != last_index
- #         push!(exploiting_moves_opponent[end], last_index)
- #     end
- # 
- #     for moves in exploiting_moves_me
- #         update_values!(model_me, alpha, moves)
- #     end
- # 
- #     for moves in exploiting_moves_opponent
- #         update_values!(model_opponent, alpha, moves)
- #     end
- # 
- # end
-
-
-
 function print_move(state_ind)
     print(state_ind)
     print(": \n")
@@ -508,7 +462,7 @@ end
 
 
 function train!(policy_me::Policy, policy_opponent::Policy, num_games::Int)
-    # srand(345)  # random seed
+    srand(345)  # random seed
     for i in 1:num_games
         play_game!(policy_me, policy_opponent)
     end
@@ -560,10 +514,10 @@ using .TicTacToe
 - trains once over 300,000 games & then plays another 1000 games and outputs the success rate
 """
 function main()
-    policy_me = LearnerPolicy(me, 0.3, 0.3, true)
-    policy_opponent = LearnerPolicy(opponent, 0.3, 0.3, true)
+    policy_me = LearnerPolicy(me, 0.3, 0.0, true)
+    policy_opponent = LearnerPolicy(opponent, 0.3, 0.0, true)
     
-    train!(policy_me, policy_opponent, 300000)
+    train!(policy_me, policy_opponent, 2000)
     println("Training done")
 
     println("Writing output to file")
@@ -573,6 +527,7 @@ function main()
     println("Done writing")
 
     policy_me.update = false
+    policy_me.exploration_prob = -1
     policy_opponent = PerfectPolicy(opponent)
 
     for i in 1:10
