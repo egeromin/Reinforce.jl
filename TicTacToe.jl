@@ -536,6 +536,7 @@ function main()
         policy_me.update = false
         policy_me.exploration_prob = -1
         opponent_policies[1].update = false
+        opponent_policies[1].exploration_prob = -1
 
         for live_opponent in opponent_policies
             print("    live opponent: ")
