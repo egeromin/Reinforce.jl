@@ -514,7 +514,6 @@ using .TicTacToe
 - trains once over 300,000 games & then plays another 1000 games and outputs the success rate
 """
 function main()
-    policy_me = LearnerPolicy(me, 0.3, 0.3, true)
 
     opponent_policies = [LearnerPolicy(opponent, 0.3, 0.3, true),
                          RandomPolicy(opponent),
@@ -524,6 +523,7 @@ function main()
     fh = open("results.csv", "w")
     for policy_opponent in opponent_policies
         
+        policy_me = LearnerPolicy(me, 0.3, 0.3, true)
         train!(policy_me, policy_opponent, 300000)
         println("Training done")
 
