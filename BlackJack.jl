@@ -10,6 +10,8 @@ only at 20 and 21
 
 module BlackJack
 
+export monte_carlo_prediction, generate_episode
+
 
 @enum Action stick hit
 
@@ -38,7 +40,7 @@ const BlackJackFullState = Union{BlackJackState, Type{TerminalState}}
 # 'full' state, to include the termination token
 
 
-function state_to_index(state::BlackJackState)::Int
+function index_from_state(state::BlackJackState)::Int
     state.usable_ace * 100 + (state.dealer_card - 1) * 10 + 
         state.current_sum - 12 + 1
 end
@@ -47,17 +49,17 @@ end
 const max_state_index = 200
 
 
-@assert max_state_index == state_to_index(BlackJackState(21, 10, true))
+@assert max_state_index == index_from_state(BlackJackState(21, 10, true))
 
 """
 Get/Set an array indexed by `state`
 """
 function Base.getindex(a::StateArray, state::BlackJackState)
-    a.a[state_to_index(state)]
+    a.a[index_from_state(state)]
 end
 
 function Base.setindex!(a::StateArray, value, state::BlackJackState)
-    a.a[state_to_index(state)] = value
+    a.a[index_from_state(state)] = value
 end
 
 
@@ -65,7 +67,7 @@ end
 function draw_card()
     card = rand(1:13)
     if 11 <= card <= 13
-        card = 10
+        card = 10  # face card
     end
     card  # return a 1 for the Ace.
 end
@@ -111,19 +113,22 @@ function next_state_hit(state::BlackJackState)
 
     if current_sum > 21
         reward = -1
-        next_state = TerminalState
+        nxt_state = TerminalState
     else
         reward = 0
-        next_state = BlackJackState(current_sum, state.dealer_card, usable_ace)
+        nxt_state = BlackJackState(current_sum, state.dealer_card, usable_ace)
     end
 
-    (next_state, reward)
+    (nxt_state, reward)
 end
 
 
 function dealer_turn(state::BlackJackState)
     dealer_sum = state.dealer_card
     usable_ace = state.dealer_card == 1
+    if usable_ace
+        dealer_sum = 11
+    end
 
     while dealer_sum < 17
         dealer_next_card = draw_card()
@@ -157,7 +162,7 @@ function next_state(state::BlackJackState, action::Action)
 end
 
 
-function generate_episode(policy::Function)
+function generate_episode()
     episode = []
 
     # draw 2 initial cards
@@ -167,10 +172,21 @@ function generate_episode(policy::Function)
 
     state = BlackJackState(initial_sum, draw_card(), usable_ace)
     reward = 0
-    push!(episode, (state, reward))
+    if state.current_sum > 11
+        push!(episode, (state, reward))
+    end
 
-    if initial_sum == 21
-        if state.dealer_card + draw_card() == 21
+    if initial_sum == 21  # check for a 'natural'
+        dealer_card = state.dealer_card
+        if dealer_card == 1
+            dealer_card = 11
+        end
+        next_card = draw_card()
+        if next_card == 1
+            next_card = 11
+        end
+
+        if dealer_card + next_card == 21
             reward = 0
         else
             reward = 1
@@ -178,12 +194,15 @@ function generate_episode(policy::Function)
 
         state = TerminalState
         push!(episode, (state, reward))
-    end  # check for a 'natural'
+    end 
 
     while state != TerminalState
         action = fixed_policy(state)
-        state, reward = next_state(state, reward)
-        push!(episode, (state, reward))
+        state, reward = next_state(state, action)
+        if state == TerminalState || state.current_sum > 11
+            push!(episode, (state, reward))  
+            # only estimate values for policies where a decision is to be made
+        end
     end
 
     episode
@@ -197,25 +216,37 @@ function update_state_returns!(episode, state_returns, first_visit::Bool=true)
 
     episode_states = map(x -> x[1], episode)
 
-    # for (state, reward) in episode
-    for i in length(episode):-1:1
-        (state, reward) = episode[i]
-        current_return += reward
+    (state, reward) = episode[end]
+    @assert state == TerminalState
 
-        if !(state in episode_states[1:i]) || (!first_visit)
-            push!(state_returns[state], current_return)
+    for i in length(episode)-1:-1:1
+        current_return += reward
+        (state, reward) = episode[i]  
+        # this reward belongs to the
+        # 'previous' state
+
+        if !(state in episode_states[1:i-1]) || (!first_visit)
+            try
+                push!(state_returns[state], current_return)
+            catch y
+                println(state)
+                throw(y)
+            end
         end
     end
-
 end
 
 
-function monte_carlo_prediction(policy, num_episodes)
+function monte_carlo_prediction(num_episodes)
+
+    function make_empty(i)
+        Array{Float64, 1}([])
+    end
 
     state_returns = StateArray(map(make_empty, 1:max_state_index))
 
     for i in 1:num_episodes
-        episode = generate_episode(policy)
+        episode = generate_episode()
         update_state_returns!(episode, state_returns)
     end
 
