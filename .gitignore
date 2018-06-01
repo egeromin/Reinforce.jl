@@ -1,4 +1,4 @@
 values.json
-results.csv
+*.csv
 *.swp
 
