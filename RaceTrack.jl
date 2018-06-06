@@ -2,7 +2,7 @@ module RaceTrack
 
 
 
-export generate_episode, load_racetrack, QValues
+export generate_episode, load_racetrack, monte_carlo_control, save_episode, QValues, main
 
 
 """
@@ -67,12 +67,14 @@ function load_racetrack(path::String)
     fh = open(path, "r")
     # use read with the length of bytes to be read
     racetrack = read(fh, reduce(*, max_grid_size))
+    close(fh)
     track = map(TrackPoint, racetrack)
     Track(reshape(track, max_grid_size))
 end
 
 
-abstract type TerminalState end
+@enum TerminalStateType TerminalState
+
 
 struct RaceTrackState
     position::Tuple{Int,Int}
@@ -82,7 +84,7 @@ end
 # when computing the Q-values
 
 
-const RaceTrackFullState = Union{RaceTrackState, Type{TerminalState}}
+const RaceTrackFullState = Union{RaceTrackState, TerminalStateType}
 
 
 struct Action  # action with x-acceleration and y-acceleration
@@ -90,12 +92,42 @@ struct Action  # action with x-acceleration and y-acceleration
     yacc::Int
 end
 
+@enum NoActionType NoAction
+# no action. Used to represent the action following the last state
+
+
+const FullAction = Union{Action, NoActionType}
+
+
+const Episode = Array{Tuple{RaceTrackFullState, FullAction}}
+# store both state and action in the episode
+
 
 struct QValues
     q::Array{Float64, 4}
 
     QValues() = new(init_qvalues())
+    QValues(qv::Array{Float64, 4}) = new(qv)
 end
+
+
+
+function init_returns() 
+
+    function make_empty(i)
+        Array{Float64, 1}([])
+    end
+
+    map(make_empty, init_qvalues())
+end
+
+
+struct StateActionReturns
+    r::Array{Array{Float64}}
+
+    StateActionReturns() = new(init_returns())
+end
+
 
 
 """
@@ -118,6 +150,18 @@ function Base.setindex(q::QValues, val::Float64,
     q.q[pos...] = val
 end
 
+
+function Base.getindex(r::StateActionReturns, state::RaceTrackState, action::Action)
+    pos = tuple(state.position..., action.xacc+2, action.yacc+2)
+    r.r[pos...]
+end
+
+# 
+# function Base.getindex(r::StateActionReturns, state::RaceTrackState, action::Action)
+#     pos = tuple(state.position..., action.xacc+2, action.yacc+2)
+#     r.r[pos...]
+# end
+# setindex not required
 
 
 function update_velocity(state::RaceTrackState, action::Action)
@@ -153,14 +197,14 @@ function next_state(track::Track, state::RaceTrackState, action::Action)
         # `∘` is function composition!!
 
         if maximum(pos) > grid_bound || minimum(pos) < 0
-            println(pos)
+            # println(pos)
             return random_start()  
             # might happen in case I go down from the start line
             # should not happen otherwise
         end
 
         if track[pos...] == green
-            println("here")
+            # println("here")
             return TerminalState
         elseif track[pos...] in (black, red)
             return random_start(track)
@@ -215,25 +259,105 @@ Generate an episode given a track.
 """
 function generate_episode(track::Track, eps::Float64, q::QValues)
 
-    episode = []
+    episode::Episode = []
     state = random_start(track)
-    push!(episode, state)
 
     # while state != TerminalState
+
     for i in 1:max_episode_length
         action = epsilon_greedy(eps, q, state)
+        push!(episode, (state, action))
+
         state = next_state(track, state, action)
-        push!(episode, state)
 
         if state == TerminalState
             break
         end
     end
 
+    push!(episode, (state, NoAction))
+
     return episode
 
 end
 
+
+function update_state_returns!(episode::Episode, eps::Float64,
+                               r::StateActionReturns, 
+                               first_visit::Bool=true)
+
+    current_return::Float64 = 0
+    state, _ = episode[end]
+
+    for i in length(episode)-1:-1:1
+        current_return += -1
+        state, action = episode[i]  
+
+        if !((state, action) in episode[1:i-1]) || (!first_visit)
+            push!(r[state, action], current_return)
+        end
+    end
+
+    QValues(map(mean, r.r))
+end
+
+
+"""
+On-policy monte-carlo control
+"""
+function monte_carlo_control(track::Track, num_episodes::Int, eps::Float64)
+
+    qval = QValues()
+    returns = StateActionReturns()
+
+    episode_lengths = []
+
+    for i in 1:num_episodes
+        episode = generate_episode(track, eps, qval)
+        @assert isa(episode, Episode)
+        qval = update_state_returns!(episode, eps, returns)
+        push!(episode_lengths, length(episode))
+
+        if i % 1000 == 0
+            println(@sprintf "Done %i of %i; episode length %i" i num_episodes length(episode))
+        end
+    end
+
+    return qval, episode_lengths
+end
+
+
+"""
+Save the path taken during an episode to file
+"""
+function save_episode(path::String, episode::Episode)
+    if episode[end][1] == TerminalState
+        episode = episode[1:end-1]
+    end
+    positions = reduce((acc, s) -> [s[1].position..., acc...],
+                       [], episode)
+    
+    fh = open(path, "w")
+    write(fh, Array{UInt8}(positions))
+    close(fh)
+end
+
+
+
+"""
+main function
+"""
+
+function main(path_racetrack::String, path_episode::String,
+              num_episodes::Int, eps::Float64)
+
+    track = load_racetrack(path_racetrack)
+    qval, _ = monte_carlo_control(track, num_episodes, eps)
+
+    episode = generate_episode(track, 0.0, qval)
+    save_episode(path_episode, episode)
+
+end
 
 end
 
