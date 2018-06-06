@@ -3,4 +3,5 @@ values.json
 *.swp
 pyscripts/reinfenv/
 *.png
+*.gif
 *.values
