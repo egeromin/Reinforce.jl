@@ -68,8 +68,10 @@ def render_episode(path_track, path_episode, path_frame_dir):
     track = load_track(path_track)
     episode = load_episode(path_episode)
 
-    for i, (x, y) in enumerate(episode):
-        track[x-1, y-1] = 2
+    for i, (y, x) in enumerate(episode):  
+        # y, x are flipped as julia is
+        # column-major
+        track[x-1, y-1] = 0
         path = os.path.join(path_frame_dir,
                             "frame{}.png".format(str(i).zfill(3)))
         render_discrete_img(path, track)

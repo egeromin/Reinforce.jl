@@ -334,7 +334,7 @@ function save_episode(path::String, episode::Episode)
     if episode[end][1] == TerminalState
         episode = episode[1:end-1]
     end
-    positions = reduce((acc, s) -> [s[1].position..., acc...],
+    positions = reduce((acc, s) -> [acc..., s[1].position...],
                        [], episode)
     
     fh = open(path, "w")
