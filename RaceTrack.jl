@@ -354,6 +354,10 @@ function main(path_racetrack::String, path_episode::String,
     track = load_racetrack(path_racetrack)
     qval, _ = monte_carlo_control(track, num_episodes, eps)
 
+    fh = open("q.values", "w")
+    write(fh, Array{Float64, 1}(reshape(qval.q, reduce(*, size(qval.q)))))
+    close(fh)
+
     episode = generate_episode(track, 0.0, qval)
     save_episode(path_episode, episode)
 
