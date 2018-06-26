@@ -283,14 +283,19 @@ end
 
 
 function update_state_returns!(episode::Episode, eps::Float64,
-                               r::StateActionReturns, 
+                               r::StateActionReturns,
+                               track::Track,
                                first_visit::Bool=true)
 
     current_return::Float64 = 0
     state, _ = episode[end]
 
     for i in length(episode)-1:-1:1
-        current_return += -1
+        if state != TerminalState && track[state.position...] == red
+            current_return += -50
+        else
+            current_return += -1
+        end
         state, action = episode[i]  
 
         if !((state, action) in episode[1:i-1]) || (!first_visit)
@@ -315,7 +320,7 @@ function monte_carlo_control(track::Track, num_episodes::Int, eps::Float64)
     for i in 1:num_episodes
         episode = generate_episode(track, eps, qval)
         @assert isa(episode, Episode)
-        qval = update_state_returns!(episode, eps, returns)
+        qval = update_state_returns!(episode, eps, returns, track)
         push!(episode_lengths, length(episode))
 
         if i % 1000 == 0
